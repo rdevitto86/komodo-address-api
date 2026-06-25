@@ -1,0 +1,246 @@
+openapi: "3.1.0"
+info:
+  title: komodo-address-api
+  version: "0.1.0"
+  description: |
+    Address validation, normalization, and geocoding via a third-party provider (e.g. SmartyStreets, Google).
+    All routes require a user-scoped JWT.
+
+    **HTTP conventions:**
+    POST → 201 Created / 400 Bad Request / 409 Conflict;
+    PUT → 200 OK / 404 Not Found;
+    DELETE → 204 No Content / 404 Not Found;
+    GET → 200 OK / 404 Not Found.
+
+    Note: address operations return 200 (not 201) because they are stateless — no resource is created.
+servers:
+  - url: http://localhost:7031
+    description: Local dev (Lambda)
+
+tags:
+  - name: Health
+  - name: Addresses
+
+paths:
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+
+  /v1/addresses/validate:
+    post:
+      tags: [Addresses]
+      summary: Validate an address
+      operationId: validateAddress
+      x-visibility: public
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressInput"
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: Address provider unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/addresses/normalize:
+    post:
+      tags: [Addresses]
+      summary: Normalize an address to a standardized format
+      operationId: normalizeAddress
+      x-visibility: public
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressInput"
+      responses:
+        "200":
+          description: Normalized address
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NormalizeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: Address provider unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/addresses/geocode:
+    post:
+      tags: [Addresses]
+      summary: Geocode an address to lat/lng coordinates
+      operationId: geocodeAddress
+      x-visibility: public
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressInput"
+      responses:
+        "200":
+          description: Geocoded result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeocodeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: Address provider unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AddressInput:
+      type: object
+      required: [street1, city, state, postalCode]
+      properties:
+        street1:
+          type: string
+        street2:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+          description: State/province/region code (e.g. "CA")
+        postalCode:
+          type: string
+        country:
+          type: string
+          description: ISO country code — defaults to "US" if omitted
+          default: US
+
+    ValidationResult:
+      type: object
+      required: [valid, deliverable]
+      properties:
+        valid:
+          type: boolean
+        deliverable:
+          type: boolean
+        errors:
+          type: object
+          description: Field-level validation errors
+          additionalProperties:
+            type: string
+
+    NormalizedAddress:
+      type: object
+      required: [street1, city, state, postalCode, country]
+      properties:
+        street1:
+          type: string
+        street2:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        postalCode:
+          type: string
+        country:
+          type: string
+
+    NormalizeResponse:
+      type: object
+      required: [address]
+      properties:
+        address:
+          $ref: "#/components/schemas/NormalizedAddress"
+
+    GeocodeResponse:
+      type: object
+      required: [latitude, longitude, accuracy, provider]
+      properties:
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        accuracy:
+          type: string
+          description: Provider accuracy level (e.g. "rooftop", "approximate")
+        provider:
+          type: string
+          description: Which geocoding provider resolved the address
+        normalized:
+          $ref: "#/components/schemas/NormalizedAddress"
+
+    Problem:
+      type: object
+      description: RFC 7807 Problem+JSON
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request body
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
